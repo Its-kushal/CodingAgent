@@ -1,1 +1,4 @@
-Plan-Reason-Act-Observe-Replan-Act-Observe-Reason-Replan-Act-Observe
+OPTIONS FOR AGENT LOOPS:
+
+    01. Plan-Reason-Act-Observe-Replan-Act-Observe-Reason-Replan-Act-Observe(Prefered)
+    02. Plan-Discover-Read-Reason-Edit-Run/Verify-Observe-Fix-Verify-Final

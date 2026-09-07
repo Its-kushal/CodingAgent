@@ -1,4 +1,5 @@
 import os
+import subprocess
 
 WORKSPACE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "workspace"))
 
@@ -15,7 +16,6 @@ def read_file(path: str) -> str:
         return f"ERROR: Could not read file. {str(e)}"
 
 def list_files(path: str = ".") -> str:
-    """Lists files and directories in the workspace."""
     target_path = os.path.abspath(os.path.join(WORKSPACE_DIR, path))
     if not target_path.startswith(WORKSPACE_DIR):
         return "ERROR: Security violation."
@@ -27,9 +27,58 @@ def list_files(path: str = ".") -> str:
     except Exception as e:
         return f"ERROR: Could not list directory. {str(e)}"
 
+def write_file(path: str, content) -> str:
+    """Creates or overwrites a file, highly resilient to varying LLM JSON data shapes."""
+    target_path = os.path.abspath(os.path.join(WORKSPACE_DIR, path))
+    if not target_path.startswith(WORKSPACE_DIR):
+        return "ERROR: Security violation. Access denied."
+    
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+    
+    try:
+        # 1. Handle List of Lists (e.g., CSV generation)
+        if isinstance(content, list) and len(content) > 0 and isinstance(content[0], list):
+            final_content = "\n".join(",".join(str(item) for item in row) for row in content)
+        # 2. Handle List of Strings (e.g., Line-by-line code)
+        elif isinstance(content, list):
+            final_content = "\n".join(str(line) for line in content)
+        # 3. Handle raw string dumps
+        else:
+            final_content = str(content)
+            
+        with open(target_path, 'w', encoding='utf-8') as f:
+            f.write(final_content)
+        return f"SUCCESS: File written to {path}"
+    except Exception as e:
+        return f"ERROR: Could not write file. {str(e)}"
+
+def run_shell(command: str) -> str:
+    """Executes a shell command inside the workspace with a strict 15-second timeout."""
+    try:
+        # cwd=WORKSPACE_DIR ensures the command runs ONLY inside the workspace folder
+        result = subprocess.run(
+            command,
+            shell=True,
+            cwd=WORKSPACE_DIR,
+            capture_output=True,
+            text=True,
+            timeout=15 
+        )
+        output = result.stdout + result.stderr
+        if result.returncode == 0:
+            return f"SUCCESS (Exit Code 0):\n{output.strip()}"
+        else:
+            return f"FAILED (Exit Code {result.returncode}):\n{output.strip()}"
+    except subprocess.TimeoutExpired:
+        return "ERROR: Command timed out after 15 seconds."
+    except Exception as e:
+        return f"ERROR: Shell execution failed. {str(e)}"
+
 TOOL_REGISTRY = {
     "read_file": read_file,
-    "list_files": list_files
+    "list_files": list_files,
+    "write_file": write_file,
+    "run_shell": run_shell
 }
 
 TOOL_SCHEMAS = [
@@ -40,7 +89,7 @@ TOOL_SCHEMAS = [
             "description": "Reads the content of a specific file.",
             "parameters": {
                 "type": "object",
-                "properties": {"path": {"type": "string", "description": "Path to the file"}},
+                "properties": {"path": {"type": "string"}},
                 "required": ["path"]
             }
         }
@@ -49,11 +98,38 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "list_files",
-            "description": "Lists all files in a directory to see what exists before reading them.",
+            "description": "Lists all files in a directory.",
             "parameters": {
                 "type": "object",
-                "properties": {"path": {"type": "string", "description": "Directory path (use '.' for root)"}},
+                "properties": {"path": {"type": "string"}},
                 "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Creates or fully overwrites a file. Can accept raw text, an array of strings (lines of code), or an array of arrays (CSV rows).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Path to save the file"},
+                    "content": {"description": "The exact source code or data to write."}
+                },
+                "required": ["path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_shell",
+            "description": "Executes a bash shell command in the workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"]
             }
         }
     }
