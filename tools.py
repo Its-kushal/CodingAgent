@@ -1,7 +1,51 @@
 import os
 import subprocess
+import shutil
+import requests
+from bs4 import BeautifulSoup
 
 WORKSPACE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "workspace"))
+
+
+def delete_file(path: str) -> str:
+    """Deletes a file or empty directory safely within the workspace."""
+    target_path = os.path.abspath(os.path.join(WORKSPACE_DIR, path))
+    if not target_path.startswith(WORKSPACE_DIR):
+        return "ERROR: Security violation. Access denied."
+    if not os.path.exists(target_path):
+        return f"ERROR: Path not found at {path}"
+    
+    try:
+        if os.path.isdir(target_path):
+            os.rmdir(target_path) # Only removes empty directories for safety
+            return f"SUCCESS: Directory {path} deleted."
+        else:
+            os.remove(target_path)
+            return f"SUCCESS: File {path} deleted."
+    except Exception as e:
+        return f"ERROR: Could not delete {path}. {str(e)}"
+
+def web_scrape(url: str) -> str:
+    """Fetches and extracts raw text from a webpage."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+    }
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        for script in soup(["script", "style"]):
+            script.extract()
+            
+        text = soup.get_text(separator='\n')
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = '\n'.join(chunk for chunk in chunks if chunk)
+        
+        return text[:15000] 
+    except Exception as e:
+        return f"ERROR: Could not scrape {url}. {str(e)}"
 
 def read_file(path: str) -> str:
     target_path = os.path.abspath(os.path.join(WORKSPACE_DIR, path))
@@ -78,7 +122,9 @@ TOOL_REGISTRY = {
     "read_file": read_file,
     "list_files": list_files,
     "write_file": write_file,
-    "run_shell": run_shell
+    "run_shell": run_shell,
+    "delete_file": delete_file,
+    "web_scrape": web_scrape
 }
 
 TOOL_SCHEMAS = [
@@ -130,6 +176,30 @@ TOOL_SCHEMAS = [
                 "type": "object",
                 "properties": {"command": {"type": "string"}},
                 "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_file",
+            "description": "Deletes a specified file or empty directory from the workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_scrape",
+            "description": "Fetches and extracts readable text from a URL. Useful for reading documentation.",
+            "parameters": {
+                "type": "object",
+                "properties": {"url": {"type": "string"}},
+                "required": ["url"]
             }
         }
     }

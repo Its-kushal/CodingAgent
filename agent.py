@@ -1,112 +1,91 @@
 import json
-import re
 from llm import chat
 from prompts import SYSTEM_PROMPT
 from tools import TOOL_SCHEMAS, execute_tool
 
 MAX_ITERATIONS = 10
 
-def extract_tool_calls(message):
-    tool_calls = []
-    thoughts = []
-
-    if "tool_calls" in message and message["tool_calls"]:
-        for tc in message["tool_calls"]:
-            tool_calls.append({"function": tc["function"]})
-
-    content = message.get("content", "").strip()
-    content = re.sub(r'^```(?:json)?\s*', '', content, flags=re.IGNORECASE)
-    content = re.sub(r'\s*```$', '', content)
-    content = content.strip()
-
-    content = re.sub(r'\}\s*\{', '},{', content)
-    if content.startswith('{') and content.endswith('}') and '},{' in content:
-        content = f"[{content}]"
-
-    if content.startswith("{") or content.startswith("["):
-        try:
-            parsed = json.loads(content)
-            if isinstance(parsed, dict) and "name" in parsed:
-                if not any(tc["function"]["name"] == parsed["name"] for tc in tool_calls):
-                    tool_calls.append({"function": parsed})
-                if "thought" in parsed:
-                    thoughts.append(parsed["thought"])
-            elif isinstance(parsed, list):
-                for item in parsed:
-                    if isinstance(item, dict) and "name" in item:
-                        if not any(tc["function"]["name"] == item["name"] for tc in tool_calls):
-                            tool_calls.append({"function": item})
-                    if isinstance(item, dict) and "thought" in item:
-                        thoughts.append(item["thought"])
-        except json.JSONDecodeError:
-            pass
-
-    return tool_calls, thoughts
-
-def run_agent_turn(messages: list) -> list:
-    recent_signatures = []
-    loop_strike_count = 0 # Track consecutive failures
+def run_agent_turn(system_prompt: str, messages: list) -> list:
+    last_action_signature = None
+    loop_strike_count = 0 
 
     for iteration in range(MAX_ITERATIONS):
         print(f"\n\033[90m--- Iteration {iteration + 1} ---\033[0m")
 
-        message = chat(messages, tools=TOOL_SCHEMAS)
-        messages.append(message)
+        message = chat(system_prompt, messages, tools=TOOL_SCHEMAS, iteration=iteration + 1)
+        messages.append(message) 
 
-        print(f"\n\033[90m[RAW LLM OUTPUT]:\n{message.get('content', '')}\033[0m")
+        # RESTORED: Dump the exact JSON payload the LLM generated
+        print(f"\n\033[90m[RAW LLM OUTPUT]:\n{json.dumps(message.get('content', []), indent=2)}\033[0m")
 
-        tool_calls, thoughts = extract_tool_calls(message)
+        content_blocks = message.get("content", [])
+        final_text = ""
+        tool_uses = []
 
-        for thought in thoughts:
-            print(f"\033[96m[PLAN]: {thought}\033[0m")
+        for block in content_blocks:
+            if "text" in block:
+                final_text += block["text"] + "\n"
+            elif "toolUse" in block:
+                tool_uses.append(block["toolUse"])
 
-        if tool_calls:
-            for tool_call in tool_calls:
-                func = tool_call["function"]
-                name = func["name"]
-                args = func.get("arguments", {})
+        if tool_uses:
+            tool_results_content = []
+            
+            for tool_use in tool_uses:
+                tool_use_id = tool_use["toolUseId"]
+                name = tool_use["name"]
+                args = tool_use["input"] 
 
                 current_signature = f"{name}:{json.dumps(args, sort_keys=True)}"
 
-                if current_signature in recent_signatures:
+                if current_signature == last_action_signature:
                     loop_strike_count += 1
                     print(f"\033[91m[SYSTEM BLOCK]: Prevented repetitive loop on {name}\033[0m")
-                    
+
                     if loop_strike_count >= 3:
                         print("\033[91m[SYSTEM]: Too many consecutive loops. Aborting turn to prevent context poisoning.\033[0m")
                         return messages
-                        
-                    result = "SYSTEM ERROR: You are repeating recent actions. Analyze the previous observations and provide your final answer, or take a DIFFERENT action."
+
+                    result = "SYSTEM ERROR: You just executed this exact command. Analyze the observation and provide your final answer, or take a DIFFERENT action."
                 else:
-                    loop_strike_count = 0 # Reset on valid action
-                    print(f"\033[94m[ACT]: {name}(...)\033[0m")
+                    loop_strike_count = 0 
+                    print(f"\n\033[94m[ACT]: Executing -> {name}(...)\033[0m")
                     result = execute_tool(name, args)
-                    
-                    recent_signatures.append(current_signature)
-                    if len(recent_signatures) > 3:
-                        recent_signatures.pop(0)
+
+                    # State Reset: Clear memory if the workspace changes
+                    if name == "write_file" and "SUCCESS" in result:
+                        last_action_signature = None
+                    else:
+                        last_action_signature = current_signature
 
                 print(f"\033[93m[OBSERVE]: {result[:200]}{'...' if len(result) > 200 else ''}\033[0m")
 
-                messages.append({
-                    "role": "tool",
-                    "content": result,
-                    "name": name
+                tool_results_content.append({
+                    "toolResult": {
+                        "toolUseId": tool_use_id,
+                        "content": [{"text": result}]
+                    }
                 })
+
+            messages.append({
+                "role": "user",
+                "content": tool_results_content
+            })
+            
         else:
-            final_text = message.get('content', '').strip()
-            print(f"\n\033[92m[AGENT]:\n{final_text}\033[0m")
+            print(f"\n\033[92m[AGENT]:\n{final_text.strip()}\033[0m")
             return messages
 
     print("\n\033[91m[SYSTEM]: Max iterations reached.\033[0m")
     return messages
 
 def start_repl():
-    print(f"\033[95m[SYSTEM]: Hybrid Agent Interactive REPL Initialized.\033[0m")
+    print(f"\033[95m[SYSTEM]: AWS Bedrock Agent Interactive REPL Initialized.\033[0m")
     print(f"\033[95m[SYSTEM]: Type 'exit' to quit, 'clear' to wipe memory.\033[0m")
     print("=" * 60)
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # Bedrock passes the System Prompt via a dedicated API parameter, not in the messages array
+    messages = []
 
     while True:
         try:
@@ -114,15 +93,17 @@ def start_repl():
             if not user_input:
                 continue
             if user_input.lower() in ['exit', 'quit']:
-                print("\033[95mShutting down...\033[0m")
+                from monitor import monitor
+                monitor.print_session_summary()
                 break
             if user_input.lower() == 'clear':
-                messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+                messages = []
                 print("\033[93m[SYSTEM]: Conversation history wiped.\033[0m")
                 continue
 
-            messages.append({"role": "user", "content": user_input})
-            messages = run_agent_turn(messages)
+            # Bedrock expects user content as an array of text blocks
+            messages.append({"role": "user", "content": [{"text": user_input}]})
+            messages = run_agent_turn(SYSTEM_PROMPT, messages)
 
         except KeyboardInterrupt:
             print("\n\033[95mForce quit detected. Shutting down...\033[0m")
