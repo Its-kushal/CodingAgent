@@ -1,0 +1,1 @@
+cmd1: docker exec -it agent_sandbox curl -s http://host.docker.internal:11434

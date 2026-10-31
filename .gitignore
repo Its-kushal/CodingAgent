@@ -2,6 +2,3 @@ __pycache__/
 *.pyc
 .env.local
 workspace/
-next_prompt.txt
-test_prompts.txt
-useful_commands.txt

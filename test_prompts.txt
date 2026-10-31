@@ -1,0 +1,41 @@
+Level,Category,Prompt for the Agent,Success Criteria
+
+01,Logic & I/O,"""
+    Write a script that creates a 100-line CSV file of random user data (Name, Age, Score). Then write a function to read it, calculate the average score, and print it. Run it.
+""","Clean file creation, correct average calculation."
+
+02,Debugging,"""
+    Create a file with a broken Python decorator that drops the original function's __name__ and fails on **kwargs. Write a test that exposes the bug, fix the decorator using functools, and re-run the test.
+""","Proper use of functools.wraps and *args, **kwargs."
+
+03,DSA (Easy),"""
+    Implement a function to check if a string of brackets is balanced (e.g., {[()]}). Write 5 edge-case tests using assert. Run it.
+""",Handles intersecting brackets and empty strings.
+
+04,Development,"""
+    Write a Python script that fetches data from the public 'JSONPlaceholder' API. Implement a retry mechanism using a backoff strategy for network failures. Run it.
+""","Uses requests, handles HTTP errors gracefully."
+
+05,OOP / Design,"""
+    Implement an LRU (Least Recently Used) Cache class from scratch without using functools.lru_cache. Write unit tests demonstrating that older items are evicted when capacity is reached. Run tests.
+""",Uses a Hash Map and Doubly Linked List (or OrderedDict).
+
+06,Algorithms,"""
+    Write a BFS algorithm to find the shortest path in a 2D grid maze containing walls. Create a hardcoded 5x5 maze, run the algorithm, and print the path coordinates.
+""","Correctly navigates obstacles, doesn't get stuck in loops."
+
+07,Advanced Support,"""
+    Write a function that intentionally causes a stack overflow via deep recursion. Then, refactor it to use an iterative approach or tail-recursion simulation to process 10,000 items successfully. Run both to prove the fix.
+""",Understands Python's recursion limit and iterative state management.
+
+08,DSA (Hard),"""
+    Implement a Trie (Prefix Tree) data structure that supports inserting words and searching with a wildcard . character (e.g., search(""b..d"") matches bird). Write tests and run them.
+""",Correct backtracking logic for the wildcard node evaluation.
+
+09,Concurrency,"""
+    Write a multi-threaded Python script using concurrent.futures. It should download 5 mock URLs simultaneously, simulate a random delay for each, and aggregate the results into a single list safely. Run it.
+""","Thread-safe data aggregation, no race conditions."
+
+10,Architecture,"""
+    Build a miniature publish-subscribe (Pub/Sub) event bus in Python. Create a Publisher class, a Subscriber interface, and a Broker. Write a simulation where 3 subscribers listen to different topics and print received messages. Run it.
+""","Decoupled architecture, clean interface boundaries."
